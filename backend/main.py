@@ -1,15 +1,16 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse, FileResponse, Response
+from fastapi import FastAPI, File, UploadFile, HTTPException, Response
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import openpyxl
 from openpyxl.styles import PatternFill
 import pandas as pd
+import numpy as np
 from datetime import datetime
 import os
 import shutil
-from typing import Union, List
-from fastapi.encoders import jsonable_encoder
+import tempfile
 import logging
+import json
 import traceback
 import zipfile
 from pathlib import Path
@@ -30,7 +31,15 @@ logger.info("=== Starting OFD Converter Backend ===")
 logger.info(f"Python Version: {sys.version}")
 logger.info(f"Current Directory: {os.getcwd()}")
 logger.info(f"Directory Contents: {os.listdir('.')}")
-logger.info(f"Environment Variables: {json.dumps(dict(os.environ), indent=2)}")
+
+# Логируем только важные переменные окружения
+env_vars = {
+    "VERCEL_ENV": os.getenv("VERCEL_ENV", "local"),
+    "VERCEL_REGION": os.getenv("VERCEL_REGION", "unknown"),
+    "PYTHON_VERSION": sys.version,
+    "TEMP_DIR": tempfile.gettempdir()
+}
+logger.info(f"Environment Info: {json.dumps(env_vars, indent=2)}")
 
 app = FastAPI()
 

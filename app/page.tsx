@@ -28,7 +28,9 @@ export default function Home() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch("http://localhost:8000/process_excel/", {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://ofd-converter.vercel.app/api';
+      // ...
+      const response = await fetch(`${API_URL}/process_excel/`, {
         method: "POST",
         body: formData,
       });

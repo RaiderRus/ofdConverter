@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { motion, AnimatePresence } from 'framer-motion';
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -96,40 +95,29 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
       <div className="max-w-4xl mx-auto">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="text-center mb-12"
-        >
+        <div className="text-center mb-12 animate-fade-in">
           <h1 className="text-4xl font-bold text-gray-800 mb-4">
             OFD Конвертер
           </h1>
           <p className="text-gray-600 text-lg">
             Загрузите Excel файл для обработки
           </p>
-        </motion.div>
+        </div>
 
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-          className="bg-white rounded-2xl shadow-xl p-8 mb-8"
-        >
+        <div className="bg-white rounded-2xl shadow-xl p-8 mb-8 animate-slide-up">
           <div
             {...getRootProps()}
-            className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${
+            className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-300 ${
               isDragActive
-                ? 'border-blue-500 bg-blue-50'
+                ? 'border-blue-500 bg-blue-50 scale-102'
                 : 'border-gray-300 hover:border-blue-400'
             }`}
           >
             <input {...getInputProps()} />
-            <motion.div
-              animate={{ scale: isDragActive ? 1.02 : 1 }}
-              className="space-y-4"
-            >
-              <div className="text-6xl mb-4">📄</div>
+            <div className="space-y-4">
+              <div className="text-6xl mb-4 transition-transform duration-300 hover:scale-110">
+                📄
+              </div>
               {isDragActive ? (
                 <p className="text-blue-500 font-medium">Отпустите файл здесь...</p>
               ) : (
@@ -142,15 +130,11 @@ export default function Home() {
                   </p>
                 </div>
               )}
-            </motion.div>
+            </div>
           </div>
 
           {file && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mt-4 p-4 bg-gray-50 rounded-lg flex items-center justify-between"
-            >
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg flex items-center justify-between animate-fade-in">
               <div className="flex items-center space-x-3">
                 <span className="text-2xl">📎</span>
                 <span className="text-gray-700 font-medium truncate">
@@ -159,39 +143,27 @@ export default function Home() {
               </div>
               <button
                 onClick={() => setFile(null)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 transition-colors"
               >
                 ✕
               </button>
-            </motion.div>
+            </div>
           )}
-        </motion.div>
+        </div>
 
-        <AnimatePresence>
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              className="bg-red-50 text-red-700 p-4 rounded-lg mb-6"
-            >
-              {error}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {error && (
+          <div className="bg-red-50 text-red-700 p-4 rounded-lg mb-6 animate-shake">
+            {error}
+          </div>
+        )}
 
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
-          className="flex justify-center"
-        >
+        <div className="flex justify-center animate-fade-in">
           <button
             onClick={handleSubmit}
             disabled={!file || isLoading}
             className={`
               px-8 py-3 rounded-full font-medium text-white
-              transition-all duration-200 transform hover:scale-105
+              transition-all duration-300 transform hover:scale-105
               ${
                 !file || isLoading
                   ? 'bg-gray-400 cursor-not-allowed'
@@ -201,38 +173,27 @@ export default function Home() {
           >
             {isLoading ? (
               <div className="flex items-center space-x-2">
-                <motion.span
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                >
-                  ⚙️
-                </motion.span>
+                <span className="animate-spin">⚙️</span>
                 <span>Обработка...</span>
               </div>
             ) : (
               'Обработать файл'
             )}
           </button>
-        </motion.div>
+        </div>
 
         {isLoading && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="mt-8"
-          >
+          <div className="mt-8 animate-fade-in">
             <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-              <motion.div
-                className="h-full bg-blue-600"
-                initial={{ width: 0 }}
-                animate={{ width: `${progress}%` }}
-                transition={{ duration: 0.5 }}
+              <div
+                className="h-full bg-blue-600 transition-all duration-300"
+                style={{ width: `${progress}%` }}
               />
             </div>
             <p className="text-center text-gray-600 mt-2">
               {progress.toFixed(0)}%
             </p>
-          </motion.div>
+          </div>
         )}
       </div>
     </main>

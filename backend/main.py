@@ -58,7 +58,7 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-@app.get("/")
+@app.get("/api")
 async def root():
     logger.info("Root endpoint called")
     return {
@@ -67,7 +67,7 @@ async def root():
         "environment": os.getenv("VERCEL_ENV", "local")
     }
 
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     """Подробная проверка состояния бэкенда"""
     logger.info("Health check endpoint called")
@@ -163,7 +163,7 @@ def add_daily_totals(df: pd.DataFrame, writer: pd.ExcelWriter, sheet_name: str):
             for cell in row:
                 cell.fill = PatternFill(start_color=HIGHLIGHT_COLOR, end_color=HIGHLIGHT_COLOR, fill_type='solid')
 
-@app.post("/process_excel/")
+@app.post("/api/process_excel")
 async def process_excel(file: UploadFile = File(...)):
     temp_path = None
     output_files = []

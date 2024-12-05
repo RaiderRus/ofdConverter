@@ -16,14 +16,6 @@
   ],
   "routes": [
     {
-      "src": "/api/health",
-      "dest": "backend/main.py"
-    },
-    {
-      "src": "/api/process_excel",
-      "dest": "backend/main.py"
-    },
-    {
       "src": "/api/(.*)",
       "dest": "backend/main.py"
     },

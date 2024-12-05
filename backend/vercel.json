@@ -1,22 +1,31 @@
 {
     "version": 2,
     "builds": [
-        {
-            "src": "main.py",
-            "use": "@vercel/python@3.1.30",
-            "config": {
-                "runtime": "python3.9"
-            }
+      {
+        "src": "backend/main.py",
+        "use": "@vercel/python",
+        "config": {
+          "zeroConfig": true,
+          "includeFiles": [
+            "requirements.txt"
+          ],
+          "buildCommand": "pip install setuptools && pip install --upgrade -r requirements.txt"
         }
+      },
+      {
+        "src": "frontend/package.json",
+        "use": "@vercel/next"
+      }
     ],
     "routes": [
-        {
-            "src": "/(.*)",
-            "dest": "main.py"
-        }
-    ],
-    "env": {
-        "PYTHONPATH": ".",
-        "PYTHONUNBUFFERED": "1"
-    }
-}
+      {
+        "src": "/api/(.*)",
+        "dest": "backend/main.py"
+      },
+      {
+        "src": "/(.*)",
+        "dest": "frontend/$1"
+      }
+    ]
+  }
+  

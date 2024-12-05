@@ -13,7 +13,7 @@
         }
       },
       {
-        "src": "frontend/package.json",
+        "src": "package.json",
         "use": "@vercel/next"
       }
     ],

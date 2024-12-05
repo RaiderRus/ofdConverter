@@ -58,7 +58,9 @@ export default function Home() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'processed_' + file.name;
+      // Меняем расширение на .zip
+      const baseFileName = file.name.replace('.xlsx', '');
+      a.download = `processed_${baseFileName}.zip`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);

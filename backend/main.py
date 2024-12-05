@@ -17,32 +17,24 @@ import sys
 
 # Настройка логирования
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
     ]
 )
 logger = logging.getLogger(__name__)
 
-# Логируем информацию о среде выполнения
-logger.info(f"Python version: {sys.version}")
-logger.info(f"Current working directory: {os.getcwd()}")
-logger.info(f"Directory contents: {os.listdir('.')}")
-logger.info(f"Temp directory: {tempfile.gettempdir()}")
-
-# Константы
-PAYMENT_COLUMNS = ['Наличными', 'Электронными', 'Предоплата (аванс)', 'Зачет предоплаты (аванса)']
-HIGHLIGHT_COLOR = 'D3D3D3'  # Светло-серый цвет для итоговых строк
-
-# Определяем путь к временной директории
-TEMP_DIR = "/tmp" if os.path.exists("/tmp") else "temp_files"
-if not os.path.exists(TEMP_DIR):
-    os.makedirs(TEMP_DIR)
+# Логируем информацию о запуске
+logger.info("=== Starting OFD Converter Backend ===")
+logger.info(f"Python Version: {sys.version}")
+logger.info(f"Current Directory: {os.getcwd()}")
+logger.info(f"Directory Contents: {os.listdir('.')}")
+logger.info(f"Environment Variables: {json.dumps(dict(os.environ), indent=2)}")
 
 app = FastAPI()
 
-# Configure CORS
+# Настройка CORS
 origins = [
     "http://localhost:3000",
     "https://ofd-converter.vercel.app",
@@ -56,6 +48,62 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"]
 )
+
+@app.get("/")
+async def root():
+    logger.info("Root endpoint called")
+    return {
+        "status": "Backend is running",
+        "timestamp": datetime.now().isoformat(),
+        "environment": os.getenv("VERCEL_ENV", "local")
+    }
+
+@app.get("/health")
+async def health_check():
+    """Подробная проверка состояния бэкенда"""
+    logger.info("Health check endpoint called")
+    
+    # Проверяем доступ к временной директории
+    temp_dir = tempfile.gettempdir()
+    temp_writable = os.access(temp_dir, os.W_OK)
+    
+    # Проверяем наличие всех необходимых пакетов
+    required_packages = ['pandas', 'numpy', 'openpyxl']
+    packages_status = {}
+    for package in required_packages:
+        try:
+            module = __import__(package)
+            packages_status[package] = getattr(module, '__version__', 'installed')
+        except ImportError as e:
+            packages_status[package] = f"ERROR: {str(e)}"
+    
+    # Собираем информацию о системе
+    system_info = {
+        "python_version": sys.version,
+        "platform": sys.platform,
+        "cwd": os.getcwd(),
+        "temp_dir": temp_dir,
+        "temp_dir_writable": temp_writable,
+        "dir_contents": os.listdir('.'),
+        "packages": packages_status,
+        "environment": os.getenv("VERCEL_ENV", "local"),
+        "vercel_region": os.getenv("VERCEL_REGION"),
+        "memory_limit": os.getenv("AWS_LAMBDA_FUNCTION_MEMORY_SIZE"),
+        "function_name": os.getenv("AWS_LAMBDA_FUNCTION_NAME"),
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    logger.info(f"Health check response: {json.dumps(system_info, indent=2)}")
+    return system_info
+
+# Константы
+PAYMENT_COLUMNS = ['Наличными', 'Электронными', 'Предоплата (аванс)', 'Зачет предоплаты (аванса)']
+HIGHLIGHT_COLOR = 'D3D3D3'  # Светло-серый цвет для итоговых строк
+
+# Определяем путь к временной директории
+TEMP_DIR = "/tmp" if os.path.exists("/tmp") else "temp_files"
+if not os.path.exists(TEMP_DIR):
+    os.makedirs(TEMP_DIR)
 
 def process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Обработка данных согласно требованиям"""

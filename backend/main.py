@@ -13,10 +13,23 @@ import logging
 import traceback
 import zipfile
 from pathlib import Path
+import sys
 
 # Настройка логирования
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 logger = logging.getLogger(__name__)
+
+# Логируем информацию о среде выполнения
+logger.info(f"Python version: {sys.version}")
+logger.info(f"Current working directory: {os.getcwd()}")
+logger.info(f"Directory contents: {os.listdir('.')}")
+logger.info(f"Temp directory: {tempfile.gettempdir()}")
 
 # Константы
 PAYMENT_COLUMNS = ['Наличными', 'Электронными', 'Предоплата (аванс)', 'Зачет предоплаты (аванса)']
@@ -30,9 +43,14 @@ if not os.path.exists(TEMP_DIR):
 app = FastAPI()
 
 # Configure CORS
+origins = [
+    "http://localhost:3000",
+    "https://ofd-converter.vercel.app",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://ofd-converter.vercel.app"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -97,11 +115,9 @@ async def process_excel(file: UploadFile = File(...)):
     try:
         logger.info(f"Получен файл: {file.filename}")
         
+        # Проверка расширения файла
         if not file.filename.endswith('.xlsx'):
-            return JSONResponse(
-                status_code=400,
-                content={"error": "Файл должен быть в формате .xlsx"}
-            )
+            raise HTTPException(status_code=400, detail="Only .xlsx files are allowed")
 
         # Генерируем уникальные имена файлов
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -111,11 +127,24 @@ async def process_excel(file: UploadFile = File(...)):
         with open(temp_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
+        logger.info("File saved successfully")
+
         # Читаем Excel файл
+        logger.info("Reading Excel file")
         df = pd.read_excel(temp_path)
-        logger.info(f"Доступные колонки в файле: {df.columns.tolist()}")
-        
+        logger.info(f"DataFrame shape: {df.shape}")
+
+        # Проверяем наличие необходимых колонок
+        required_columns = ['Дата/время', 'Признак расчета', 'Тип налогообложения']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Missing required columns: {', '.join(missing_columns)}"
+            )
+
         # Обрабатываем данные
+        logger.info("Processing data")
         df = process_dataframe(df)
         
         # 4. Разделяем на два файла по типу налогообложения
@@ -133,6 +162,8 @@ async def process_excel(file: UploadFile = File(...)):
         
         # Создаем архив с результатами
         archive_name = os.path.join(TEMP_DIR, f"results_{timestamp}.zip")
+        logger.info(f"Creating ZIP archive: {archive_name}")
+        
         with zipfile.ZipFile(archive_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
             for f in output_files:
                 if os.path.exists(f):
@@ -144,7 +175,7 @@ async def process_excel(file: UploadFile = File(...)):
         if not os.path.exists(archive_name):
             raise Exception("Не удалось создать архив с результатами")
         
-        logger.info("Отправка архива клиенту")
+        logger.info("Processing completed successfully")
         
         # Читаем архив в память
         with open(archive_name, 'rb') as f:
@@ -170,8 +201,7 @@ async def process_excel(file: UploadFile = File(...)):
         )
     
     except Exception as e:
-        logger.error(f"Ошибка при обработке файла: {str(e)}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Error processing file: {str(e)}", exc_info=True)
         # В случае ошибки очищаем все файлы
         try:
             if temp_path and os.path.exists(temp_path):
@@ -182,12 +212,9 @@ async def process_excel(file: UploadFile = File(...)):
             if archive_name and os.path.exists(archive_name):
                 os.remove(archive_name)
         except Exception as cleanup_error:
-            logger.error(f"Ошибка при очистке файлов: {str(cleanup_error)}")
+            logger.error(f"Error cleaning up files: {str(cleanup_error)}")
         
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Ошибка при обработке файла: {str(e)}"}
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.on_event("shutdown")
 async def cleanup_temp_files():
@@ -198,3 +225,8 @@ async def cleanup_temp_files():
             logger.info("Временная директория очищена")
         except Exception as e:
             logger.error(f"Ошибка при очистке временной директории: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    logger.info("Starting server")
+    uvicorn.run(app, host="0.0.0.0", port=8000)

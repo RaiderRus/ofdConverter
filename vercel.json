@@ -5,11 +5,8 @@
       "src": "backend/main.py",
       "use": "@vercel/python",
       "config": {
-        "zeroConfig": true,
-        "includeFiles": [
-          "requirements.txt"
-        ],
-        "buildCommand": "pip install setuptools && pip install --upgrade -r requirements.txt"
+        "runtime": "python3.9",
+        "maxLambdaSize": "15mb"
       }
     },
     {
@@ -18,6 +15,14 @@
     }
   ],
   "routes": [
+    {
+      "src": "/api/health",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/api/process_excel",
+      "dest": "backend/main.py"
+    },
     {
       "src": "/api/(.*)",
       "dest": "backend/main.py"

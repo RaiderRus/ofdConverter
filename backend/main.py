@@ -22,22 +22,22 @@ logger = logging.getLogger(__name__)
 PAYMENT_COLUMNS = ['Наличными', 'Электронными', 'Предоплата (аванс)', 'Зачет предоплаты (аванса)']
 HIGHLIGHT_COLOR = 'D3D3D3'  # Светло-серый цвет для итоговых строк
 
+# Определяем путь к временной директории
+TEMP_DIR = "/tmp" if os.path.exists("/tmp") else "temp_files"
+if not os.path.exists(TEMP_DIR):
+    os.makedirs(TEMP_DIR)
+
 app = FastAPI()
 
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000, https://ofd-converter.vercel.app"],
+    allow_origins=["http://localhost:3000", "https://ofd-converter.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"]
 )
-
-# Создаем временную директорию при запуске сервера
-TEMP_DIR = "temp_files"
-if not os.path.exists(TEMP_DIR):
-    os.makedirs(TEMP_DIR)
 
 def process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Обработка данных согласно требованиям"""

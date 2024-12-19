@@ -15,6 +15,9 @@ import traceback
 import zipfile
 from pathlib import Path
 import sys
+from typing import cast
+import pandas as pd
+from pandas import DataFrame, Series
 
 # Настройка логирования
 logging.basicConfig(
@@ -113,67 +116,111 @@ HIGHLIGHT_COLOR = 'D3D3D3'  # Светло-серый цвет для итого
 TEMP_DIR = "/tmp" if os.path.exists("/tmp") else "temp_files"
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
+    logger.info(f"Created temporary directory: {TEMP_DIR}")
 
-def process_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+def process_dataframe(df: DataFrame) -> DataFrame:
     """Обработка данных согласно требованиям"""
     # 3. Сортировка по дате
+    df = df.copy()
     df['Дата/время'] = pd.to_datetime(df['Дата/время'])
     df = df.sort_values('Дата/время')
+    return df
+
+def add_daily_totals(df: DataFrame, writer: pd.ExcelWriter, sheet_name: str) -> None:
+    """Добавление ежедневных итогов с форматированием"""
+    logger.info(f"Adding daily totals for sheet: {sheet_name}")
     
-    # 1. Обработка возвратов
-    return_mask = df['Признак расчета'] == 'Возврат прихода'
-    for col in PAYMENT_COLUMNS:
-        df.loc[return_mask, col] = -abs(df[col].fillna(0))
+    # Преобразуем столбец даты в datetime
+    df['Дата/время'] = pd.to_datetime(df['Дата/время'])
+    df['Дата'] = df['Дата/время'].dt.date
     
-    # 2. Расчет итогов
-    df['Итого'] = df[PAYMENT_COLUMNS].sum(axis=1)
+    # Группируем по дате и считаем итоги
+    daily_totals = df.groupby('Дата').agg({
+        col: 'sum' for col in PAYMENT_COLUMNS
+    }).reset_index()
+    
+    # Записываем данные в Excel
+    df.to_excel(writer, sheet_name=sheet_name, index=False)
+    
+    # Получаем объект листа
+    worksheet = writer.sheets[sheet_name]
+    
+    # Добавляем итоги после основных данных
+    start_row = len(df) + 3
+    daily_totals.to_excel(writer, sheet_name=sheet_name, startrow=start_row, index=False)
+    
+    # Форматирование итогов
+    for row in worksheet[start_row + 1:start_row + len(daily_totals) + 2]:
+        for cell in row:
+            cell.fill = PatternFill(start_color=HIGHLIGHT_COLOR, end_color=HIGHLIGHT_COLOR, fill_type='solid')
+
+def process_nomenclature_dataframe(df: DataFrame) -> DataFrame:
+    """Обработка данных для отчета по номенклатуре"""
+    logger.info("Processing nomenclature report")
+    
+    # Создаем копию DataFrame
+    df = df.copy()
+    
+    # Обработка значений согласно правилам
+    for column in ['Наличными по чеку', 'Электронными по чеку']:
+        # Замена значений, которые больше 'Сумма товара'
+        mask = (df[column] > df['Сумма товара']) & (df[column] > 0)
+        df.loc[mask, column] = df.loc[mask, 'Сумма товара']
+    
+    # Обработка возвратов
+    mask_return = df['Признак расчета (тег 1054)'] == 'Возврат прихода'
+    for column in ['Наличными по чеку', 'Электронными по чеку', 'Сумма товара']:
+        df.loc[mask_return, column] = -df.loc[mask_return, column]
     
     return df
 
-def add_daily_totals(df: pd.DataFrame, writer: pd.ExcelWriter, sheet_name: str):
-    """Добавление ежедневных итогов с форматированием"""
-    # Создаем копию для обработки
-    df_with_totals = []
+def add_daily_totals_nomenclature(df: DataFrame, writer: pd.ExcelWriter, sheet_name: str) -> None:
+    """Добавление ежедневных итогов для отчета по номенклатуре"""
+    logger.info(f"Adding daily totals for sheet: {sheet_name}")
     
-    # Группируем по дате для подсчета итогов
-    for date, group in df.groupby(df['Дата/время'].dt.date):
-        # Добавляем строки группы
-        df_with_totals.append(group)
-        
-        # Создаем строку с итогами
-        totals = pd.DataFrame([{
-            'Дата/время': group['Дата/время'].iloc[-1],
-            'Признак расчета': 'ИТОГО за день',
-            **{col: group[col].sum() for col in PAYMENT_COLUMNS + ['Итого']}
-        }])
-        df_with_totals.append(totals)
+    # Преобразуем столбец даты в datetime
+    df['Дата/время'] = pd.to_datetime(df['Дата/время'])
+    df['Дата'] = df['Дата/время'].dt.date
     
-    # Объединяем все в один DataFrame
-    result_df = pd.concat(df_with_totals, ignore_index=True)
+    # Группируем по дате и считаем итоги
+    daily_totals = df.groupby('Дата').agg({
+        'Наличными по чеку': 'sum',
+        'Электронными по чеку': 'sum',
+        'Сумма товара': 'sum'
+    }).reset_index()
     
-    # Записываем в Excel
-    result_df.to_excel(writer, sheet_name=sheet_name, index=False)
+    # Записываем данные в Excel
+    df.to_excel(writer, sheet_name=sheet_name, index=False)
     
-    # Получаем лист для форматирования
+    # Получаем объект листа
     worksheet = writer.sheets[sheet_name]
     
-    # Форматируем итоговые строки
-    for row_idx, row in enumerate(worksheet.iter_rows(min_row=2), start=2):
-        if row[1].value == 'ИТОГО за день':  # Признак расчета
-            for cell in row:
-                cell.fill = PatternFill(start_color=HIGHLIGHT_COLOR, end_color=HIGHLIGHT_COLOR, fill_type='solid')
+    # Добавляем итоги после основных данных
+    start_row = len(df) + 3
+    daily_totals.to_excel(writer, sheet_name=sheet_name, startrow=start_row, index=False)
+    
+    # Форматирование итогов
+    fill = PatternFill(start_color=HIGHLIGHT_COLOR, end_color=HIGHLIGHT_COLOR, fill_type='solid')
+    for row in range(start_row + 1, start_row + len(daily_totals) + 2):
+        for col in range(1, len(daily_totals.columns) + 1):
+            cell = worksheet.cell(row=row, column=col)
+            cell.fill = fill
 
 @app.post("/api/process_excel")
-async def process_excel(file: UploadFile = File(...)):
+async def process_excel(file: UploadFile = File(...), report_type: str = 'checks'):
     temp_path = None
     output_files = []
     archive_name = None
     
     try:
-        logger.info(f"Получен файл: {file.filename}")
+        logger.info(f"Получен файл: {file.filename}, тип отчета: {report_type}")
         
+        # Проверка наличия файла и его имени
+        if not file or not file.filename:
+            raise HTTPException(status_code=400, detail="No file provided")
+            
         # Проверка расширения файла
-        if not file.filename.endswith('.xlsx'):
+        if not str(file.filename).endswith('.xlsx'):
             raise HTTPException(status_code=400, detail="Only .xlsx files are allowed")
 
         # Генерируем уникальные имена файлов
@@ -188,30 +235,69 @@ async def process_excel(file: UploadFile = File(...)):
 
         # Читаем Excel файл
         logger.info("Reading Excel file")
-        df = pd.read_excel(temp_path)
+        df = cast(DataFrame, pd.read_excel(temp_path))
         logger.info(f"DataFrame shape: {df.shape}")
 
-        # Проверяем наличие необходимых колонок
-        required_columns = ['Дата/время', 'Признак расчета', 'Тип налогообложения']
+        # Определяем тип отчета на основе наличия колонок
+        logger.info(f"Detecting report type based on columns")
+        checks_columns = ['Признак расчета', 'Тип налогообложения']
+        nomenclature_columns = ['Признак расчета (тег 1054)', 'Признак предмета расчета (тег 1212)']
+
+        has_checks_columns = all(col in df.columns for col in checks_columns)
+        has_nomenclature_columns = all(col in df.columns for col in nomenclature_columns)
+
+        # Автоматически определяем тип отчета, если он не соответствует структуре
+        detected_type = report_type
+        if report_type == 'checks' and not has_checks_columns and has_nomenclature_columns:
+            logger.info("Automatically switching to nomenclature report type based on columns")
+            detected_type = 'nomenclature'
+        elif report_type == 'nomenclature' and not has_nomenclature_columns and has_checks_columns:
+            logger.info("Automatically switching to checks report type based on columns")
+            detected_type = 'checks'
+
+        # Проверяем наличие необходимых колонок в зависимости от типа отчета
+        if detected_type == 'checks':
+            required_columns = ['Дата/время', 'Признак расчета', 'Тип налогообложения']
+        else:  # nomenclature
+            required_columns = [
+                'Дата/время', 'Признак расчета (тег 1054)', 'Признак предмета расчета (тег 1212)',
+                'Наличными по чеку', 'Электронными по чеку', 'Сумма товара'
+            ]
+            
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
             raise HTTPException(
                 status_code=400,
-                detail=f"Missing required columns: {', '.join(missing_columns)}"
+                detail=f"Missing required columns for {detected_type} report: {', '.join(missing_columns)}"
             )
 
-        # Обрабатываем данные
-        logger.info("Processing data")
-        df = process_dataframe(df)
-        
-        # 4. Разделяем на два файла по типу налогообложения
-        for tax_type in ['ПАТЕНТ', 'УСН']:
-            df_tax = df[df['Тип налогообложения'].str.contains(tax_type, case=False, na=False)].copy()
-            if not df_tax.empty:
-                output_filename = os.path.join(TEMP_DIR, f"processed_{tax_type}_{timestamp}_{file.filename}")
-                with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
-                    add_daily_totals(df_tax, writer, f'{tax_type}')
-                output_files.append(output_filename)
+        # Обрабатываем данные в зависимости от типа отчета
+        logger.info(f"Processing data for report type: {detected_type}")
+        if detected_type == 'checks':
+            df = process_dataframe(df)
+            # Разделяем по типу налогообложения
+            for tax_type in ['ПАТЕНТ', 'УСН']:
+                mask = df['Тип налогообложения'].str.contains(tax_type, case=False, na=False)
+                df_filtered = cast(DataFrame, df[mask])
+                if not df_filtered.empty:
+                    output_filename = os.path.join(TEMP_DIR, f"processed_{tax_type}_{timestamp}_{file.filename}")
+                    with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
+                        add_daily_totals(df_filtered.copy(), writer, f'{tax_type}')
+                    output_files.append(output_filename)
+        else:  # nomenclature
+            df = process_nomenclature_dataframe(df)
+            # Разделяем по признаку предмета расчета
+            for item_type in df['Признак предмета расчета (тег 1212)'].unique():
+                if pd.isna(item_type):
+                    continue
+                mask = df['Признак предмета расчета (тег 1212)'] == item_type
+                df_filtered = cast(DataFrame, df[mask])
+                if not df_filtered.empty:
+                    safe_item_type = "".join(x for x in str(item_type) if x.isalnum() or x in (' ', '-', '_'))[:50]
+                    output_filename = os.path.join(TEMP_DIR, f"processed_{safe_item_type}_{timestamp}_{file.filename}")
+                    with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
+                        add_daily_totals_nomenclature(df_filtered.copy(), writer, safe_item_type)
+                    output_files.append(output_filename)
         
         # Проверяем, что файлы созданы
         if not output_files:

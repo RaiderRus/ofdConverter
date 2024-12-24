@@ -53,7 +53,7 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = await response.json() as { detail: string };
         throw new Error(errorData.detail || 'Произошла ошибка при обработке файла');
       }
 
@@ -72,8 +72,12 @@ export default function Home() {
 
       // Очищаем состояние после успешной обработки
       setFile(null);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Произошла неизвестная ошибка');
+      }
     } finally {
       setLoading(false);
     }

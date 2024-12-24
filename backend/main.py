@@ -161,6 +161,16 @@ def process_nomenclature_dataframe(df: DataFrame) -> DataFrame:
     # Создаем копию DataFrame
     df = df.copy()
     
+    # Обработка предоплаты
+    prepayment_column = 'Зачет предоплаты (аванса) по чеку'
+    if prepayment_column in df.columns:
+        # Заполняем NaN значения нулями
+        df[prepayment_column] = df[prepayment_column].fillna(0)
+        # Вычитаем предоплату из суммы товара там, где она больше нуля
+        mask_prepayment = df[prepayment_column] > 0
+        df.loc[mask_prepayment, 'Сумма товара'] -= df.loc[mask_prepayment, prepayment_column]
+        logger.info(f"Processed prepayment for {mask_prepayment.sum()} rows")
+    
     # Обработка значений согласно правилам
     for column in ['Наличными по чеку', 'Электронными по чеку']:
         # Замена значений, которые больше 'Сумма товара'

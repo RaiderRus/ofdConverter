@@ -6,7 +6,7 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reportType, setReportType] = useState<'checks' | 'nomenclature'>('checks');
+  const [reportType, setReportType] = useState<'checks' | 'nomenclature' | 'taxcom'>('checks');
 
   const handleDrop = useCallback(async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -115,10 +115,11 @@ export default function Home() {
                   <select
                     className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                     value={reportType}
-                    onChange={(e) => setReportType(e.target.value as 'checks' | 'nomenclature')}
+                    onChange={(e) => setReportType(e.target.value as 'checks' | 'nomenclature' | 'taxcom')}
                   >
                     <option value="checks">Отчет по чекам</option>
                     <option value="nomenclature">Отчет по номенклатуре</option>
+                    <option value="taxcom">Такском отчет по чекам</option>
                   </select>
                 </div>
 

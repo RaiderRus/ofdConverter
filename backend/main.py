@@ -216,6 +216,68 @@ def add_daily_totals_nomenclature(df: DataFrame, writer: pd.ExcelWriter, sheet_n
             cell = worksheet.cell(row=row, column=col)
             cell.fill = fill
 
+def process_taxcom_dataframe(df: DataFrame) -> DataFrame:
+    """Обработка данных для Такском отчета по чекам"""
+    logger.info("Processing taxcom report")
+    
+    # Создаем копию DataFrame
+    df = df.copy()
+    
+    # Удаляем итоговые строки
+    df = df[~df['Дата и время'].astype(str).str.contains('Итог', case=False, na=False)]
+    
+    # Преобразуем и сортируем по дате
+    df['Дата и время'] = pd.to_datetime(df['Дата и время'])
+    df = df.sort_values('Дата и время')
+    
+    return df
+
+def add_daily_totals_taxcom(df: DataFrame, writer: pd.ExcelWriter, sheet_name: str) -> None:
+    """Добавление ежедневных итогов для Такском отчета"""
+    logger.info(f"Adding daily totals for taxcom sheet: {sheet_name}")
+    
+    # Создаем копию DataFrame для работы
+    df = df.copy()
+    
+    # Преобразуем столбец даты в datetime и создаем столбец только с датой
+    df['Дата'] = df['Дата и время'].dt.date
+    
+    # Группируем по дате и считаем итоги
+    daily_totals = df.groupby('Дата').agg({
+        'Наличными': 'sum',
+        'Безналичными': 'sum',
+        'Сумма': 'sum'
+    }).reset_index()
+    
+    # Форматируем даты в строки для вывода
+    daily_totals['Дата'] = daily_totals['Дата'].astype(str)
+    
+    # Добавляем строку с общим итогом
+    total_row = pd.DataFrame([{
+        'Дата': 'Итог',
+        'Наличными': daily_totals['Наличными'].sum(),
+        'Безналичными': daily_totals['Безналичными'].sum(),
+        'Сумма': daily_totals['Сумма'].sum()
+    }])
+    daily_totals = pd.concat([daily_totals, total_row], ignore_index=True)
+    
+    # Записываем основные данные
+    df.to_excel(writer, sheet_name=sheet_name, index=False)
+    
+    # Получаем объект листа
+    worksheet = writer.sheets[sheet_name]
+    
+    # Добавляем итоги после основных данных
+    start_row = len(df) + 3
+    daily_totals.to_excel(writer, sheet_name=sheet_name, startrow=start_row, index=False)
+    
+    # Форматирование итогов
+    fill = PatternFill(start_color=HIGHLIGHT_COLOR, end_color=HIGHLIGHT_COLOR, fill_type='solid')
+    for row in range(start_row + 1, start_row + len(daily_totals) + 2):
+        for col in range(1, len(daily_totals.columns) + 1):
+            cell = worksheet.cell(row=row, column=col)
+            cell.fill = fill
+
 @app.post("/api/process_excel")
 async def process_excel(file: UploadFile = File(...), report_type: str = 'checks'):
     temp_path = None
@@ -252,27 +314,40 @@ async def process_excel(file: UploadFile = File(...), report_type: str = 'checks
         logger.info(f"Detecting report type based on columns")
         checks_columns = ['Признак расчета', 'Тип налогообложения']
         nomenclature_columns = ['Признак расчета (тег 1054)', 'Признак предмета расчета (тег 1212)']
+        taxcom_columns = ['Дата и время', 'Система налогообложения', 'Наличными', 'Безналичными', 'Сумма']
 
         has_checks_columns = all(col in df.columns for col in checks_columns)
         has_nomenclature_columns = all(col in df.columns for col in nomenclature_columns)
+        has_taxcom_columns = all(col in df.columns for col in taxcom_columns)
 
         # Автоматически определяем тип отчета, если он не соответствует структуре
         detected_type = report_type
-        if report_type == 'checks' and not has_checks_columns and has_nomenclature_columns:
-            logger.info("Automatically switching to nomenclature report type based on columns")
-            detected_type = 'nomenclature'
-        elif report_type == 'nomenclature' and not has_nomenclature_columns and has_checks_columns:
-            logger.info("Automatically switching to checks report type based on columns")
-            detected_type = 'checks'
+        if report_type == 'checks' and not has_checks_columns:
+            if has_nomenclature_columns:
+                detected_type = 'nomenclature'
+            elif has_taxcom_columns:
+                detected_type = 'taxcom'
+        elif report_type == 'nomenclature' and not has_nomenclature_columns:
+            if has_checks_columns:
+                detected_type = 'checks'
+            elif has_taxcom_columns:
+                detected_type = 'taxcom'
+        elif report_type == 'taxcom' and not has_taxcom_columns:
+            if has_checks_columns:
+                detected_type = 'checks'
+            elif has_nomenclature_columns:
+                detected_type = 'nomenclature'
 
         # Проверяем наличие необходимых колонок в зависимости от типа отчета
         if detected_type == 'checks':
             required_columns = ['Дата/время', 'Признак расчета', 'Тип налогообложения']
-        else:  # nomenclature
+        elif detected_type == 'nomenclature':
             required_columns = [
                 'Дата/время', 'Признак расчета (тег 1054)', 'Признак предмета расчета (тег 1212)',
                 'Наличными по чеку', 'Электронными по чеку', 'Сумма товара'
             ]
+        else:  # taxcom
+            required_columns = ['Дата и время', 'Система налогообложения', 'Наличными', 'Безналичными', 'Сумма']
             
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
@@ -294,7 +369,7 @@ async def process_excel(file: UploadFile = File(...), report_type: str = 'checks
                     with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
                         add_daily_totals(df_filtered.copy(), writer, f'{tax_type}')
                     output_files.append(output_filename)
-        else:  # nomenclature
+        elif detected_type == 'nomenclature':
             df = process_nomenclature_dataframe(df)
             # Разделяем по признаку предмета расчета
             for item_type in df['Признак предмета расчета (тег 1212)'].unique():
@@ -307,6 +382,18 @@ async def process_excel(file: UploadFile = File(...), report_type: str = 'checks
                     output_filename = os.path.join(TEMP_DIR, f"processed_{safe_item_type}_{timestamp}_{file.filename}")
                     with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
                         add_daily_totals_nomenclature(df_filtered.copy(), writer, safe_item_type)
+                    output_files.append(output_filename)
+        else:  # taxcom
+            df = process_taxcom_dataframe(df)
+            # Разделяем по системе налогообложения
+            tax_types_map = {'Патент': 'PATENT', 'УСН доход': 'USN'}
+            for tax_type, file_suffix in tax_types_map.items():
+                mask = df['Система налогообложения'] == tax_type
+                df_filtered = cast(DataFrame, df[mask])
+                if not df_filtered.empty:
+                    output_filename = os.path.join(TEMP_DIR, f"processed_{file_suffix}_{timestamp}_{file.filename}")
+                    with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
+                        add_daily_totals_taxcom(df_filtered.copy(), writer, tax_type)
                     output_files.append(output_filename)
         
         # Проверяем, что файлы созданы

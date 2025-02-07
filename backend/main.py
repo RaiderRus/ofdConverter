@@ -168,7 +168,7 @@ def process_nomenclature_dataframe(df: DataFrame) -> DataFrame:
         df[prepayment_column] = df[prepayment_column].fillna(0)
         
         # Группируем по номеру чека для обработки предоплаты
-        receipt_groups = df.groupby('№ чека')
+        receipt_groups = df.groupby('Номер документа')
         
         for receipt_num, receipt_df in receipt_groups:
             # Если есть предоплата в чеке

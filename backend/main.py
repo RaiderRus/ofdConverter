@@ -184,11 +184,11 @@ def process_nomenclature_dataframe(df: DataFrame) -> DataFrame:
                     ratio = (total_sum - total_prepayment) / total_sum
                     
                     # Применяем пропорциональное вычитание к каждой позиции
-                    mask = df['№ чека'] == receipt_num
+                    mask = df['Номер документа'] == receipt_num
                     df.loc[mask, 'Сумма товара'] = df.loc[mask, 'Сумма товара'] * ratio
                 else:
                     # Если предоплата больше или равна сумме товаров, устанавливаем сумму в 0
-                    mask = df['№ чека'] == receipt_num
+                    mask = df['Номер документа'] == receipt_num
                     df.loc[mask, 'Сумма товара'] = 0
     
     # Обработка значений согласно правилам

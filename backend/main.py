@@ -166,10 +166,30 @@ def process_nomenclature_dataframe(df: DataFrame) -> DataFrame:
     if prepayment_column in df.columns:
         # Заполняем NaN значения нулями
         df[prepayment_column] = df[prepayment_column].fillna(0)
-        # Устанавливаем сумму товара в 0, где есть предоплата больше нуля
-        mask_prepayment = df[prepayment_column] > 0
-        df.loc[mask_prepayment, 'Сумма товара'] = 0
-        logger.info(f"Set product sum to 0 for {mask_prepayment.sum()} rows with prepayment")
+        
+        # Группируем по номеру чека для обработки предоплаты
+        receipt_groups = df.groupby('№ чека')
+        
+        for receipt_num, receipt_df in receipt_groups:
+            # Если есть предоплата в чеке
+            if (receipt_df[prepayment_column] > 0).any():
+                # Получаем общую сумму предоплаты для чека (берем только одно значение)
+                total_prepayment = receipt_df[prepayment_column].iloc[0]
+                
+                # Получаем общую сумму товаров в чеке
+                total_sum = receipt_df['Сумма товара'].sum()
+                
+                if total_sum > total_prepayment:
+                    # Вычисляем коэффициент для пропорционального вычитания
+                    ratio = (total_sum - total_prepayment) / total_sum
+                    
+                    # Применяем пропорциональное вычитание к каждой позиции
+                    mask = df['№ чека'] == receipt_num
+                    df.loc[mask, 'Сумма товара'] = df.loc[mask, 'Сумма товара'] * ratio
+                else:
+                    # Если предоплата больше или равна сумме товаров, устанавливаем сумму в 0
+                    mask = df['№ чека'] == receipt_num
+                    df.loc[mask, 'Сумма товара'] = 0
     
     # Обработка значений согласно правилам
     for column in ['Наличными по чеку', 'Электронными по чеку']:

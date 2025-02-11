@@ -174,22 +174,31 @@ def process_nomenclature_dataframe(df: DataFrame) -> DataFrame:
             # Если есть предоплата в чеке
             if (receipt_df[prepayment_column] > 0).any():
                 # Получаем общую сумму предоплаты для чека (берем только одно значение)
-                total_prepayment = receipt_df[prepayment_column].iloc[0]
+                remaining_prepayment = receipt_df[prepayment_column].iloc[0]
                 
-                # Получаем общую сумму товаров в чеке
-                total_sum = receipt_df['Сумма товара'].sum()
+                # Создаем маску для текущего чека
+                receipt_mask = df['Номер документа'] == receipt_num
                 
-                if total_sum > total_prepayment:
-                    # Вычисляем коэффициент для пропорционального вычитания
-                    ratio = (total_sum - total_prepayment) / total_sum
+                # Обрабатываем каждую позицию в чеке
+                for idx in receipt_df.index:
+                    current_amount = df.loc[idx, 'Сумма товара']
                     
-                    # Применяем пропорциональное вычитание к каждой позиции
-                    mask = df['Номер документа'] == receipt_num
-                    df.loc[mask, 'Сумма товара'] = df.loc[mask, 'Сумма товара'] * ratio
-                else:
-                    # Если предоплата больше или равна сумме товаров, устанавливаем сумму в 0
-                    mask = df['Номер документа'] == receipt_num
-                    df.loc[mask, 'Сумма товара'] = 0
+                    if remaining_prepayment <= 0:
+                        break
+                        
+                    if current_amount >= remaining_prepayment:
+                        # Случай 1: Сумма товара больше или равна остатку предоплаты
+                        df.loc[idx, 'Сумма товара'] = current_amount - remaining_prepayment
+                        # Обнуляем остальные одинаковые позиции в чеке
+                        same_items_mask = (df['Номер документа'] == receipt_num) & \
+                                        (df.index > idx) & \
+                                        (df['Наименование товара'] == df.loc[idx, 'Наименование товара'])
+                        df.loc[same_items_mask, 'Сумма товара'] = 0
+                        remaining_prepayment = 0
+                    else:
+                        # Случай 2: Предоплата больше суммы товара
+                        df.loc[idx, 'Сумма товара'] = 0
+                        remaining_prepayment -= current_amount
     
     # Обработка значений согласно правилам
     for column in ['Наличными по чеку', 'Электронными по чеку']:

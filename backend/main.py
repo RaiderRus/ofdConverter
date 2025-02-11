@@ -211,6 +211,20 @@ def process_nomenclature_dataframe(df: DataFrame) -> DataFrame:
     for column in ['Наличными по чеку', 'Электронными по чеку', 'Сумма товара']:
         df.loc[mask_return, column] = -df.loc[mask_return, column]
     
+    # Проверка и корректировка соответствия сумм
+    receipt_groups = df.groupby('Номер документа')
+    for receipt_num, receipt_df in receipt_groups:
+        receipt_mask = df['Номер документа'] == receipt_num
+        total_payments = df.loc[receipt_mask, 'Наличными по чеку'].sum() + \
+                        df.loc[receipt_mask, 'Электронными по чеку'].sum()
+        total_amount = df.loc[receipt_mask, 'Сумма товара'].sum()
+        
+        if total_amount != total_payments:
+            # Если есть расхождение, корректируем суммы пропорционально
+            if total_amount > 0:  # Избегаем деления на ноль
+                ratio = total_payments / total_amount
+                df.loc[receipt_mask, 'Сумма товара'] = df.loc[receipt_mask, 'Сумма товара'] * ratio
+    
     return df
 
 def add_daily_totals_nomenclature(df: DataFrame, writer: pd.ExcelWriter, sheet_name: str) -> None:

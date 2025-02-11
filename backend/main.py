@@ -192,7 +192,7 @@ def process_nomenclature_dataframe(df: DataFrame) -> DataFrame:
                         # Обнуляем остальные одинаковые позиции в чеке
                         same_items_mask = (df['Номер документа'] == receipt_num) & \
                                         (df.index > idx) & \
-                                        (df['Наименование товара'] == df.loc[idx, 'Наименование товара'])
+                                        (df['Наименование'] == df.loc[idx, 'Наименование'])
                         df.loc[same_items_mask, 'Сумма товара'] = 0
                         remaining_prepayment = 0
                     else:

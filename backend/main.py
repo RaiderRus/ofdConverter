@@ -188,7 +188,7 @@ def process_nomenclature_dataframe(df: DataFrame) -> DataFrame:
                         
                     if current_amount >= remaining_prepayment:
                         # Случай 1: Сумма товара больше или равна остатку предоплаты
-                        df.loc[idx, 'Сумма товара'] = round(current_amount - remaining_prepayment, 2)
+                        df.loc[idx, 'Сумма товара'] = current_amount - remaining_prepayment
                         # Обнуляем остальные одинаковые позиции в чеке
                         same_items_mask = (df['Номер документа'] == receipt_num) & \
                                         (df.index > idx) & \
@@ -198,32 +198,21 @@ def process_nomenclature_dataframe(df: DataFrame) -> DataFrame:
                     else:
                         # Случай 2: Предоплата больше суммы товара
                         df.loc[idx, 'Сумма товара'] = 0
-                        remaining_prepayment = round(remaining_prepayment - current_amount, 2)
+                        remaining_prepayment -= current_amount
     
     # Обработка значений согласно правилам
     for column in ['Наличными по чеку', 'Электронными по чеку']:
         # Замена значений, которые больше 'Сумма товара'
         mask = (df[column] > df['Сумма товара']) & (df[column] > 0)
-        df.loc[mask, column] = df.loc[mask, 'Сумма товара'].round(2)
+        df.loc[mask, column] = df.loc[mask, 'Сумма товара']
     
     # Обработка возвратов
     mask_return = df['Признак расчета (тег 1054)'] == 'Возврат прихода'
     for column in ['Наличными по чеку', 'Электронными по чеку', 'Сумма товара']:
-        df.loc[mask_return, column] = -df.loc[mask_return, column].round(2)
+        df.loc[mask_return, column] = -df.loc[mask_return, column]
     
-    # Проверка и корректировка соответствия сумм
-    receipt_groups = df.groupby('Номер документа')
-    for receipt_num, receipt_df in receipt_groups:
-        receipt_mask = df['Номер документа'] == receipt_num
-        total_payments = (df.loc[receipt_mask, 'Наличными по чеку'].sum() + 
-                         df.loc[receipt_mask, 'Электронными по чеку'].sum()).round(2)
-        total_amount = df.loc[receipt_mask, 'Сумма товара'].sum().round(2)
-        
-        if total_amount != total_payments:
-            # Если есть расхождение, корректируем суммы пропорционально
-            if total_amount > 0:  # Избегаем деления на ноль
-                ratio = total_payments / total_amount
-                df.loc[receipt_mask, 'Сумма товара'] = (df.loc[receipt_mask, 'Сумма товара'] * ratio).round(2)
+    # После всех расчетов устанавливаем 'Сумма товара' равной сумме наличных и электронных платежей
+    df['Сумма товара'] = df['Наличными по чеку'] + df['Электронными по чеку']
     
     return df
 

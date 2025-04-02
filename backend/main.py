@@ -339,18 +339,19 @@ def create_card_xml(source_xml: ET.Element) -> ET.Element:
 
     # Добавляем Description
     description = ET.SubElement(card, "Description")
+    title = "Счет на оплату"  # Значение по умолчанию
+    date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")  # Значение по умолчанию
+
     try:
         # Получаем данные из исходного XML
         doc = source_xml.find(".//Документ")
         if doc is not None:
-            title = doc.get("НаимДокОпр", "Счет на оплату")
+            title = doc.get("НаимДокОпр", title)
             date_str = doc.get("ДатаИнфПр") or doc.get("ДатаСчФ")
             if date_str:
                 # Преобразуем дату в нужный формат
                 date_obj = datetime.strptime(date_str, "%d.%m.%Y")
                 date = date_obj.strftime("%Y-%m-%dT%H:%M:%S")
-            else:
-                date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
             
             # Добавляем номер документа если есть
             number = doc.get("НомерСчФ") or doc.get("НомИнфПр")
@@ -358,8 +359,6 @@ def create_card_xml(source_xml: ET.Element) -> ET.Element:
                 description.set("Number", number)
     except (AttributeError, ValueError) as e:
         logger.warning(f"Ошибка при получении данных для Description: {e}")
-        title = "Счет на оплату"
-        date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     description.set("Title", title)
     description.set("Date", date)

@@ -330,23 +330,32 @@ def create_card_xml(source_xml: ET.Element) -> ET.Element:
 
     # Добавляем Identifiers с уникальным ExternalIdentifier
     identifiers = ET.SubElement(card, "Identifiers")
-    identifiers.set("ExternalIdentifier", str(uuid.uuid4()))
+    external_id = str(uuid.uuid4())
+    identifiers.set("ExternalIdentifier", external_id)
 
-    # Добавляем пустой Type
-    ET.SubElement(card, "Type")
+    # Добавляем Type с информацией о типе документа
+    type_elem = ET.SubElement(card, "Type")
+    type_elem.text = "UniversalTransferDocument"  # Или другой тип в зависимости от документа
 
     # Добавляем Description
     description = ET.SubElement(card, "Description")
-    # Получаем данные из исходного XML
     try:
-        title = source_xml.find(".//Документ").get("НаимДокОпр", "Счет на оплату")
-        date_str = source_xml.find(".//Документ").get("ДатаИнфПр")
-        if date_str:
-            # Преобразуем дату в нужный формат
-            date_obj = datetime.strptime(date_str, "%d.%m.%Y")
-            date = date_obj.strftime("%Y-%m-%dT%H:%M:%S")
-        else:
-            date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        # Получаем данные из исходного XML
+        doc = source_xml.find(".//Документ")
+        if doc is not None:
+            title = doc.get("НаимДокОпр", "Счет на оплату")
+            date_str = doc.get("ДатаИнфПр") or doc.get("ДатаСчФ")
+            if date_str:
+                # Преобразуем дату в нужный формат
+                date_obj = datetime.strptime(date_str, "%d.%m.%Y")
+                date = date_obj.strftime("%Y-%m-%dT%H:%M:%S")
+            else:
+                date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            
+            # Добавляем номер документа если есть
+            number = doc.get("НомерСчФ") or doc.get("НомИнфПр")
+            if number:
+                description.set("Number", number)
     except (AttributeError, ValueError) as e:
         logger.warning(f"Ошибка при получении данных для Description: {e}")
         title = "Счет на оплату"
@@ -366,15 +375,32 @@ def create_card_xml(source_xml: ET.Element) -> ET.Element:
             kpp = seller.get("КПП", "")
             name = seller.get("НаимОрг", "") or f"ИП {seller.get('ФИО', '')}"
             
-            abonent.set("Id", inn)
+            abonent.set("Id", inn)  # Используем ИНН как идентификатор
             abonent.set("Name", name)
             abonent.set("Inn", inn)
-            abonent.set("Kpp", kpp)
+            if kpp:
+                abonent.set("Kpp", kpp)
     except Exception as e:
         logger.warning(f"Ошибка при получении данных отправителя: {e}")
 
-    # Добавляем пустой Receiver
-    ET.SubElement(card, "Receiver")
+    # Добавляем Receiver
+    receiver = ET.SubElement(card, "Receiver")
+    try:
+        # Получаем данные о покупателе из исходного XML
+        buyer = source_xml.find(".//СвПокуп")
+        if buyer is not None:
+            abonent = ET.SubElement(receiver, "Abonent")
+            inn = buyer.get("ИННЮЛ", "") or buyer.get("ИННФЛ", "")
+            kpp = buyer.get("КПП", "")
+            name = buyer.get("НаимОрг", "") or f"ИП {buyer.get('ФИО', '')}"
+            
+            abonent.set("Id", inn)  # Используем ИНН как идентификатор
+            abonent.set("Name", name)
+            abonent.set("Inn", inn)
+            if kpp:
+                abonent.set("Kpp", kpp)
+    except Exception as e:
+        logger.warning(f"Ошибка при получении данных получателя: {e}")
 
     return card
 
@@ -394,7 +420,17 @@ def create_meta_xml(source_xml: ET.Element) -> ET.Element:
     # Добавляем Documents
     documents = ET.SubElement(doc_flow, "Documents")
     document = ET.SubElement(documents, "Document")
-    document.set("ReglamentCode", "Nonformalized")
+    
+    # Устанавливаем атрибуты документа
+    try:
+        doc_type = source_xml.find(".//Документ").get("Функция", "")
+        if doc_type == "СЧФ":
+            document.set("ReglamentCode", "UniversalTransferDocument")
+        else:
+            document.set("ReglamentCode", "Nonformalized")
+    except (AttributeError, ValueError):
+        document.set("ReglamentCode", "Nonformalized")
+    
     document.set("TransactionCode", "MainDocument")
 
     # Добавляем Files
@@ -403,6 +439,7 @@ def create_meta_xml(source_xml: ET.Element) -> ET.Element:
     # Добавляем MainImage
     main_image = ET.SubElement(files, "MainImage")
     main_image.set("xmlns:d6p1", "http://api-invoice.taxcom.ru/card")
+    
     # Получаем имя исходного файла
     try:
         source_filename = source_xml.find(".//Файл").get("ИмяФайл", "document.xml")

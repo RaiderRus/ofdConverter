@@ -314,26 +314,43 @@ def add_daily_totals_taxcom(df: DataFrame, writer: pd.ExcelWriter, sheet_name: s
 
 def create_card_xml(source_xml: ET.Element) -> str:
     """Создает card.xml на основе данных из исходного файла"""
-    # Создаем корневой элемент
     root = ET.Element("Card")
     
-    # Добавляем необходимые элементы
-    # Примечание: пути к элементам нужно будет настроить в соответствии с структурой входного XML
     try:
         # Уникальный идентификатор для карточки
         card_id = str(uuid.uuid4())
         ET.SubElement(root, "Id").text = card_id
         
         # Получаем данные из исходного XML
-        number = source_xml.find(".//Number").text if source_xml.find(".//Number") is not None else ""
-        date = source_xml.find(".//Date").text if source_xml.find(".//Date") is not None else ""
-        
-        ET.SubElement(root, "Number").text = number
-        ET.SubElement(root, "Date").text = date
-        ET.SubElement(root, "Type").text = "Bill"  # Тип документа - счет
-        
-        # Добавляем другие необходимые элементы
-        # ...
+        # Предполагаем стандартную структуру электронного счета
+        document = source_xml.find(".//Документ") or source_xml.find(".//Document")
+        if document is not None:
+            # Номер документа
+            number = document.get("Номер") or document.get("Number", "")
+            ET.SubElement(root, "Number").text = number
+            
+            # Дата документа
+            date = document.get("Дата") or document.get("Date", "")
+            ET.SubElement(root, "Date").text = date
+            
+            # Тип документа
+            ET.SubElement(root, "Type").text = "Bill"
+            
+            # Сумма документа
+            amount = document.get("Сумма") or document.get("Amount", "")
+            ET.SubElement(root, "Amount").text = amount
+            
+            # Валюта
+            currency = document.get("Валюта") or document.get("Currency", "RUB")
+            ET.SubElement(root, "Currency").text = currency
+            
+            # Организация
+            organization = document.find(".//Организация") or document.find(".//Organization")
+            if organization is not None:
+                org_element = ET.SubElement(root, "Organization")
+                ET.SubElement(org_element, "Name").text = organization.get("Наименование") or organization.get("Name", "")
+                ET.SubElement(org_element, "INN").text = organization.get("ИНН") or organization.get("INN", "")
+                ET.SubElement(org_element, "KPP").text = organization.get("КПП") or organization.get("KPP", "")
         
     except Exception as e:
         logger.error(f"Error creating card.xml: {str(e)}")
@@ -343,16 +360,31 @@ def create_card_xml(source_xml: ET.Element) -> str:
 
 def create_meta_xml(source_xml: ET.Element) -> str:
     """Создает meta.xml на основе данных из исходного файла"""
-    # Создаем корневой элемент
     root = ET.Element("Meta")
     
     try:
-        # Добавляем метаданные
-        ET.SubElement(root, "Created").text = datetime.now().isoformat()
-        ET.SubElement(root, "Modified").text = datetime.now().isoformat()
+        # Текущее время для меток создания и изменения
+        current_time = datetime.now().isoformat()
         
-        # Добавляем другие необходимые элементы из исходного XML
-        # ...
+        # Основные метаданные
+        ET.SubElement(root, "Created").text = current_time
+        ET.SubElement(root, "Modified").text = current_time
+        
+        # Получаем данные из исходного XML
+        document = source_xml.find(".//Документ") or source_xml.find(".//Document")
+        if document is not None:
+            # Добавляем информацию о документе
+            doc_info = ET.SubElement(root, "DocumentInfo")
+            ET.SubElement(doc_info, "Type").text = "Bill"
+            ET.SubElement(doc_info, "Number").text = document.get("Номер") or document.get("Number", "")
+            ET.SubElement(doc_info, "Date").text = document.get("Дата") or document.get("Date", "")
+            
+            # Добавляем информацию об организации
+            organization = document.find(".//Организация") or document.find(".//Organization")
+            if organization is not None:
+                org_info = ET.SubElement(root, "OrganizationInfo")
+                ET.SubElement(org_info, "Name").text = organization.get("Наименование") or organization.get("Name", "")
+                ET.SubElement(org_info, "INN").text = organization.get("ИНН") or organization.get("INN", "")
         
     except Exception as e:
         logger.error(f"Error creating meta.xml: {str(e)}")

@@ -31,18 +31,31 @@ const BillConverter: React.FC = () => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Ошибка при обработке файла');
+        const errorData = await response.text();
+        let errorMessage = 'Ошибка при обработке файла';
+        try {
+          const errorJson = JSON.parse(errorData);
+          errorMessage = errorJson.detail || errorMessage;
+        } catch {
+          errorMessage = errorData || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
-      // Получаем имя файла из заголовка Content-Disposition
-      const contentDisposition = response.headers.get('Content-Disposition');
-      const filename = contentDisposition
-        ? contentDisposition.split('filename=')[1].replace(/"/g, '')
-        : 'processed_bill.zip';
-
-      // Скачиваем файл
+      // Получаем blob из ответа
       const blob = await response.blob();
+      
+      // Получаем имя файла из заголовка Content-Disposition или используем дефолтное
+      let filename = 'processed_bill.zip';
+      const contentDisposition = response.headers.get('Content-Disposition');
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1].replace(/['"]/g, '');
+        }
+      }
+
+      // Создаем ссылку для скачивания
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

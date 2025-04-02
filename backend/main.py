@@ -687,9 +687,27 @@ async def process_bill(file: UploadFile = File(...)):
         elif b'windows-1251' in content.lower() or b'cp1251' in content.lower():
             encoding = 'windows-1251'
         
-        # Декодируем XML с правильной кодировкой
-        xml_content = content.decode(encoding)
-        source_xml = ET.fromstring(xml_content)
+        try:
+            # Пробуем декодировать XML с определенной кодировкой
+            xml_content = content.decode(encoding)
+            source_xml = ET.fromstring(xml_content)
+        except (UnicodeDecodeError, ET.ParseError) as e:
+            # Если не удалось, пробуем другие кодировки
+            encodings = ['windows-1251', 'utf-8', 'utf-16', 'cp866']
+            for enc in encodings:
+                if enc != encoding:
+                    try:
+                        xml_content = content.decode(enc)
+                        source_xml = ET.fromstring(xml_content)
+                        encoding = enc
+                        break
+                    except (UnicodeDecodeError, ET.ParseError):
+                        continue
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Не удалось определить кодировку файла или файл содержит некорректный XML"
+                )
         
         # Сохраняем исходный файл
         source_path = os.path.join(bill_dir, file.filename)
@@ -728,12 +746,20 @@ async def process_bill(file: UploadFile = File(...)):
         return FileResponse(
             archive_name,
             media_type='application/zip',
-            filename=os.path.basename(archive_name)
+            filename=f"bill_{timestamp}.zip",
+            headers={
+                'Content-Disposition': f'attachment; filename="bill_{timestamp}.zip"'
+            }
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing bill: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail="Ошибка при обработке файла: " + str(e)
+        )
         
     finally:
         # Очистка временных файлов

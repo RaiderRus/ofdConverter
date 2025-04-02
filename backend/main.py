@@ -115,10 +115,17 @@ PAYMENT_COLUMNS = ['Наличными', 'Электронными', 'Предо
 HIGHLIGHT_COLOR = 'D3D3D3'  # Светло-серый цвет для итоговых строк
 
 # Определяем путь к временной директории
+try:
     TEMP_DIR = "/tmp" if os.path.exists("/tmp") else "temp_files"
     if not os.path.exists(TEMP_DIR):
-    os.makedirs(TEMP_DIR)
+        os.makedirs(TEMP_DIR, exist_ok=True)
         logger.info(f"Created temporary directory: {TEMP_DIR}")
+except Exception as e:
+    logger.error(f"Failed to create temporary directory: {e}")
+    raise HTTPException(
+        status_code=500,
+        detail="Failed to create temporary directory for file processing"
+    )
 
 def process_dataframe(df: DataFrame) -> DataFrame:
     """Обработка данных согласно требованиям"""

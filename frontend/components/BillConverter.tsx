@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState } from 'react';
 import { Upload, message, Button } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
@@ -20,13 +22,17 @@ const BillConverter: React.FC = () => {
     formData.append('file', file);
 
     try {
-      const response = await fetch('/api/process_bill', {
+      const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 
+        (process.env.NODE_ENV === 'development' ? 'http://localhost:8000' : 'https://ofd-converter.vercel.app');
+
+      const response = await fetch(`${BASE_URL}/api/process_bill`, {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error('Ошибка при обработке файла');
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Ошибка при обработке файла');
       }
 
       // Получаем имя файла из заголовка Content-Disposition
@@ -48,29 +54,41 @@ const BillConverter: React.FC = () => {
 
       message.success('Файл успешно обработан!');
     } catch (error) {
-      message.error('Ошибка при обработке файла');
-      console.error('Error:', error);
+      message.error(error instanceof Error ? error.message : 'Ошибка при обработке файла');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ padding: '24px' }}>
-      <h2>Преобразование электронных счетов</h2>
-      <p>Загрузите XML файл электронного счета для преобразования в формат 1С</p>
-      <Upload
-        accept=".xml"
-        showUploadList={false}
-        beforeUpload={beforeUpload}
-        customRequest={({ file }) => handleUpload(file as RcFile)}
-      >
-        <Button icon={<UploadOutlined />} loading={loading}>
-          Выберите файл
-        </Button>
-      </Upload>
+    <div className="max-w-2xl mx-auto bg-gray-800 rounded-xl shadow-2xl p-8 mt-8">
+      <div className="text-center space-y-8">
+        <div>
+          <h2 className="text-2xl font-bold mb-2 bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+            Преобразование электронных счетов
+          </h2>
+          <p className="text-gray-400">
+            Загрузите XML файл для обработки
+          </p>
+        </div>
+
+        <Upload
+          accept=".xml"
+          showUploadList={false}
+          beforeUpload={beforeUpload}
+          customRequest={({ file }) => handleUpload(file as RcFile)}
+        >
+          <Button 
+            icon={<UploadOutlined />} 
+            loading={loading}
+            className="w-full h-32 flex items-center justify-center border-2 border-dashed border-gray-600 hover:border-blue-500 bg-gray-700/50 hover:bg-gray-700"
+          >
+            {loading ? 'Обработка...' : 'Нажмите или перетащите файл сюда'}
+          </Button>
+        </Upload>
+      </div>
     </div>
   );
 };
 
-export default BillConverter; 
+export default BillConverter;

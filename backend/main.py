@@ -614,7 +614,7 @@ async def process_bill(file: UploadFile = File(...)):
         os.makedirs(temp_dir)
         
         # Создаем структуру папок
-        bill_dir = os.path.join(temp_dir, "1!")
+        bill_dir = os.path.join(temp_dir, "1")
         os.makedirs(bill_dir)
         
         # Читаем входной XML файл

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, Response
+from fastapi import FastAPI, File, UploadFile, HTTPException, Response, StreamingResponse
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import openpyxl
@@ -660,6 +660,7 @@ async def process_bill(file: UploadFile = File(...)):
     """Обработка электронного счета"""
     temp_dir = None
     archive_name = None
+    response = None
     
     try:
         logger.info(f"Processing electronic bill: {file.filename}")
@@ -766,19 +767,47 @@ async def process_bill(file: UploadFile = File(...)):
                         zipf.write(file_path, arcname)
             logger.info(f"Created ZIP archive: {archive_name}")
             
-            # Отправляем файл
-            logger.info("Sending response")
-            return FileResponse(
-                archive_name,
+            # Проверяем, что архив существует и имеет размер
+            if not os.path.exists(archive_name):
+                raise HTTPException(
+                    status_code=500,
+                    detail="Ошибка при создании архива: файл не найден"
+                )
+                
+            archive_size = os.path.getsize(archive_name)
+            logger.info(f"Archive size: {archive_size} bytes")
+            
+            if archive_size == 0:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Ошибка при создании архива: файл пуст"
+                )
+            
+            # Читаем архив в память перед отправкой
+            with open(archive_name, 'rb') as f:
+                archive_data = f.read()
+                
+            # Создаем StreamingResponse
+            response = StreamingResponse(
+                iter([archive_data]),
                 media_type='application/zip',
-                filename=f"bill_{timestamp}.zip",
                 headers={
-                    'Content-Disposition': f'attachment; filename="bill_{timestamp}.zip"'
+                    'Content-Disposition': f'attachment; filename="bill_{timestamp}.zip"',
+                    'Content-Length': str(len(archive_data))
                 }
             )
             
+            # Очищаем временные файлы
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+                logger.info(f"Cleaned up temp directory: {temp_dir}")
+            
+            return response
+            
+        except HTTPException:
+            raise
         except Exception as e:
-            logger.error(f"Error during file processing: {str(e)}", exc_info=True)
+            logger.error(f"Unhandled error: {str(e)}", exc_info=True)
             raise
         
     except HTTPException:
@@ -791,16 +820,13 @@ async def process_bill(file: UploadFile = File(...)):
         )
         
     finally:
-        # Очистка временных файлов
+        # В finally очищаем только архив, так как он уже прочитан в память
         try:
-            if temp_dir and os.path.exists(temp_dir):
-                shutil.rmtree(temp_dir)
-                logger.info(f"Cleaned up temp directory: {temp_dir}")
             if archive_name and os.path.exists(archive_name):
                 os.remove(archive_name)
                 logger.info(f"Cleaned up archive: {archive_name}")
         except Exception as e:
-            logger.error(f"Error cleaning up temporary files: {str(e)}", exc_info=True)
+            logger.error(f"Error cleaning up archive: {str(e)}", exc_info=True)
 
 @app.on_event("shutdown")
 async def cleanup_temp_files():

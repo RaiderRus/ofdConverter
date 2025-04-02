@@ -1,5 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, Response
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import openpyxl
 from openpyxl.styles import PatternFill
@@ -787,9 +787,9 @@ async def process_bill(file: UploadFile = File(...)):
             with open(archive_name, 'rb') as f:
                 archive_data = f.read()
                 
-            # Создаем StreamingResponse
-            response = StreamingResponse(
-                iter([archive_data]),
+            # Создаем Response
+            response = Response(
+                content=archive_data,
                 media_type='application/zip',
                 headers={
                     'Content-Disposition': f'attachment; filename="bill_{timestamp}.zip"',

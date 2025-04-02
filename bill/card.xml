@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<Card xmlns="http://api-invoice.taxcom.ru/card" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+	<Identifiers ExternalIdentifier="b4b0c3a0-e9b0-11ed-8038-000c29982301"/>
+	<Type/>
+	<Description Title="Счет на оплату" Date="2023-05-03T00:00:00"/>
+	<Sender>
+		<Abonent Id="471402006641" Name="ИП Климова Н. В." Inn="471402006641" Kpp=""/>
+	</Sender>
+	<Receiver/>
+</Card>

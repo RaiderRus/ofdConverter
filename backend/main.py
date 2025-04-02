@@ -18,6 +18,8 @@ import sys
 from typing import cast
 import pandas as pd
 from pandas import DataFrame, Series
+from xml.etree import ElementTree as ET
+import uuid
 
 # Настройка логирования
 logging.basicConfig(
@@ -310,6 +312,54 @@ def add_daily_totals_taxcom(df: DataFrame, writer: pd.ExcelWriter, sheet_name: s
             cell = worksheet.cell(row=row, column=col)
             cell.fill = fill
 
+def create_card_xml(source_xml: ET.Element) -> str:
+    """Создает card.xml на основе данных из исходного файла"""
+    # Создаем корневой элемент
+    root = ET.Element("Card")
+    
+    # Добавляем необходимые элементы
+    # Примечание: пути к элементам нужно будет настроить в соответствии с структурой входного XML
+    try:
+        # Уникальный идентификатор для карточки
+        card_id = str(uuid.uuid4())
+        ET.SubElement(root, "Id").text = card_id
+        
+        # Получаем данные из исходного XML
+        number = source_xml.find(".//Number").text if source_xml.find(".//Number") is not None else ""
+        date = source_xml.find(".//Date").text if source_xml.find(".//Date") is not None else ""
+        
+        ET.SubElement(root, "Number").text = number
+        ET.SubElement(root, "Date").text = date
+        ET.SubElement(root, "Type").text = "Bill"  # Тип документа - счет
+        
+        # Добавляем другие необходимые элементы
+        # ...
+        
+    except Exception as e:
+        logger.error(f"Error creating card.xml: {str(e)}")
+        raise
+    
+    return ET.tostring(root, encoding='utf-8', xml_declaration=True)
+
+def create_meta_xml(source_xml: ET.Element) -> str:
+    """Создает meta.xml на основе данных из исходного файла"""
+    # Создаем корневой элемент
+    root = ET.Element("Meta")
+    
+    try:
+        # Добавляем метаданные
+        ET.SubElement(root, "Created").text = datetime.now().isoformat()
+        ET.SubElement(root, "Modified").text = datetime.now().isoformat()
+        
+        # Добавляем другие необходимые элементы из исходного XML
+        # ...
+        
+    except Exception as e:
+        logger.error(f"Error creating meta.xml: {str(e)}")
+        raise
+    
+    return ET.tostring(root, encoding='utf-8', xml_declaration=True)
+
 @app.post("/api/process_excel")
 async def process_excel(file: UploadFile = File(...), report_type: str = 'checks'):
     temp_path = None
@@ -486,6 +536,88 @@ async def process_excel(file: UploadFile = File(...), report_type: str = 'checks
         except Exception as cleanup_error:
             logger.error(f"Error cleaning up files: {str(cleanup_error)}")
         
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/process_bill")
+async def process_bill(file: UploadFile = File(...)):
+    """Обработка электронного счета"""
+    temp_dir = None
+    archive_name = None
+    
+    try:
+        logger.info(f"Processing electronic bill: {file.filename}")
+        
+        # Проверка расширения файла
+        if not file.filename.lower().endswith('.xml'):
+            raise HTTPException(status_code=400, detail="Only XML files are allowed")
+        
+        # Создаем временную директорию для работы с файлами
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_dir = os.path.join(TEMP_DIR, f"bill_processing_{timestamp}")
+        os.makedirs(temp_dir)
+        
+        # Создаем структуру папок
+        bill_dir = os.path.join(temp_dir, "1!")
+        os.makedirs(bill_dir)
+        
+        # Читаем входной XML файл
+        content = await file.read()
+        source_xml = ET.fromstring(content)
+        
+        # Сохраняем исходный файл
+        source_path = os.path.join(bill_dir, file.filename)
+        with open(source_path, 'wb') as f:
+            f.write(content)
+        
+        # Создаем card.xml
+        card_content = create_card_xml(source_xml)
+        card_path = os.path.join(bill_dir, 'card.xml')
+        with open(card_path, 'wb') as f:
+            f.write(card_content)
+        
+        # Создаем meta.xml
+        meta_content = create_meta_xml(source_xml)
+        meta_path = os.path.join(bill_dir, 'meta.xml')
+        with open(meta_path, 'wb') as f:
+            f.write(meta_content)
+        
+        # Создаем архив
+        archive_name = os.path.join(TEMP_DIR, f"bill_processed_{timestamp}.zip")
+        with zipfile.ZipFile(archive_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Добавляем все файлы из папки bill_dir в архив
+            for root, _, files in os.walk(bill_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, temp_dir)
+                    zipf.write(file_path, arcname)
+        
+        # Читаем архив в память
+        with open(archive_name, 'rb') as f:
+            file_data = f.read()
+        
+        # Очищаем временные файлы
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        if archive_name and os.path.exists(archive_name):
+            os.remove(archive_name)
+        
+        # Возвращаем архив
+        return Response(
+            content=file_data,
+            media_type='application/zip',
+            headers={
+                'Content-Disposition': f'attachment; filename="bill_processed_{timestamp}.zip"',
+                'Content-Type': 'application/zip'
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error processing bill: {str(e)}", exc_info=True)
+        # Очищаем временные файлы в случае ошибки
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        if archive_name and os.path.exists(archive_name):
+            os.remove(archive_name)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.on_event("shutdown")

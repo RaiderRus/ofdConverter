@@ -325,7 +325,8 @@ def create_card_xml(source_xml: ET.Element) -> ET.Element:
     card = ET.Element("Card", {
         "xmlns": "http://api-invoice.taxcom.ru/card",
         "xmlns:xs": "http://www.w3.org/2001/XMLSchema",
-        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance"
+        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+        "DocumentVersion": "1.0"
     })
 
     # Добавляем Identifiers с уникальным ExternalIdentifier
@@ -335,33 +336,36 @@ def create_card_xml(source_xml: ET.Element) -> ET.Element:
 
     # Добавляем Type с информацией о типе документа
     type_elem = ET.SubElement(card, "Type")
-    type_elem.text = "UniversalTransferDocument"  # Или другой тип в зависимости от документа
+    type_elem.text = "Invoice"  # Изменили тип на Invoice для счета на оплату
 
     # Добавляем Description
     description = ET.SubElement(card, "Description")
     title = "Счет на оплату"  # Значение по умолчанию
     date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")  # Значение по умолчанию
+    doc_number = ""  # Значение по умолчанию для номера документа
 
     try:
         # Получаем данные из исходного XML
         doc = source_xml.find(".//Документ")
         if doc is not None:
             title = doc.get("НаимДокОпр", title)
+            doc_number = doc.get("НомерСчФ") or doc.get("НомИнфПр", "")
             date_str = doc.get("ДатаИнфПр") or doc.get("ДатаСчФ")
             if date_str:
                 # Преобразуем дату в нужный формат
                 date_obj = datetime.strptime(date_str, "%d.%m.%Y")
                 date = date_obj.strftime("%Y-%m-%dT%H:%M:%S")
-            
-            # Добавляем номер документа если есть
-            number = doc.get("НомерСчФ") or doc.get("НомИнфПр")
-            if number:
-                description.set("Number", number)
     except (AttributeError, ValueError) as e:
         logger.warning(f"Ошибка при получении данных для Description: {e}")
 
     description.set("Title", title)
     description.set("Date", date)
+    if doc_number:
+        description.set("Number", doc_number)
+
+    # Добавляем Direction
+    direction = ET.SubElement(card, "Direction")
+    direction.text = "Outbound"  # Исходящий документ
 
     # Добавляем Sender
     sender = ET.SubElement(card, "Sender")
@@ -379,6 +383,10 @@ def create_card_xml(source_xml: ET.Element) -> ET.Element:
             abonent.set("Inn", inn)
             if kpp:
                 abonent.set("Kpp", kpp)
+            
+            # Добавляем Department для Sender
+            department = ET.SubElement(sender, "Department")
+            department.set("Id", "0")  # Значение по умолчанию для основного подразделения
     except Exception as e:
         logger.warning(f"Ошибка при получении данных отправителя: {e}")
 
@@ -398,8 +406,16 @@ def create_card_xml(source_xml: ET.Element) -> ET.Element:
             abonent.set("Inn", inn)
             if kpp:
                 abonent.set("Kpp", kpp)
+            
+            # Добавляем Department для Receiver
+            department = ET.SubElement(receiver, "Department")
+            department.set("Id", "0")  # Значение по умолчанию для основного подразделения
     except Exception as e:
         logger.warning(f"Ошибка при получении данных получателя: {e}")
+
+    # Добавляем DocumentState
+    state = ET.SubElement(card, "DocumentState")
+    state.text = "Sent"  # Статус документа
 
     return card
 
@@ -409,12 +425,14 @@ def create_meta_xml(source_xml: ET.Element) -> ET.Element:
     container = ET.Element("ContainerDescription", {
         "xmlns": "http://api-invoice.taxcom.ru/meta",
         "xmlns:xs": "http://www.w3.org/2001/XMLSchema",
-        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance"
+        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+        "DocumentVersion": "1.0"
     })
 
     # Добавляем DocFlow с уникальным Id
     doc_flow = ET.SubElement(container, "DocFlow")
     doc_flow.set("Id", str(uuid.uuid4()))
+    doc_flow.set("DocumentCount", "1")
 
     # Добавляем Documents
     documents = ET.SubElement(doc_flow, "Documents")
@@ -424,13 +442,15 @@ def create_meta_xml(source_xml: ET.Element) -> ET.Element:
     try:
         doc_type = source_xml.find(".//Документ").get("Функция", "")
         if doc_type == "СЧФ":
-            document.set("ReglamentCode", "UniversalTransferDocument")
+            document.set("ReglamentCode", "Invoice")
         else:
             document.set("ReglamentCode", "Nonformalized")
     except (AttributeError, ValueError):
-        document.set("ReglamentCode", "Nonformalized")
+        document.set("ReglamentCode", "Invoice")  # По умолчанию для счета на оплату
     
     document.set("TransactionCode", "MainDocument")
+    document.set("DocumentDate", datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
+    document.set("DocumentNumber", "1")
 
     # Добавляем Files
     files = ET.SubElement(document, "Files")
@@ -450,6 +470,10 @@ def create_meta_xml(source_xml: ET.Element) -> ET.Element:
     external_card = ET.SubElement(files, "ExternalCard")
     external_card.set("xmlns:d6p1", "http://api-invoice.taxcom.ru/card")
     external_card.set("Path", "1/card.xml")
+
+    # Добавляем ProcessingState
+    state = ET.SubElement(document, "ProcessingState")
+    state.text = "New"
 
     return container
 
@@ -655,63 +679,71 @@ async def process_bill(file: UploadFile = File(...)):
         
         # Читаем входной XML файл
         content = await file.read()
-        source_xml = ET.fromstring(content)
+        
+        # Определяем кодировку файла
+        encoding = 'utf-8'
+        if content.startswith(b'\xef\xbb\xbf'):  # UTF-8 с BOM
+            content = content[3:]
+        elif b'windows-1251' in content.lower() or b'cp1251' in content.lower():
+            encoding = 'windows-1251'
+        
+        # Декодируем XML с правильной кодировкой
+        xml_content = content.decode(encoding)
+        source_xml = ET.fromstring(xml_content)
         
         # Сохраняем исходный файл
         source_path = os.path.join(bill_dir, file.filename)
-        with open(source_path, 'wb') as f:
-            f.write(content)
+        with open(source_path, 'w', encoding='windows-1251') as f:
+            f.write(xml_content)
         
         # Создаем card.xml
-        card_content = ET.tostring(create_card_xml(source_xml), encoding='utf-8', xml_declaration=True)
+        card_xml = create_card_xml(source_xml)
+        card_content = ('<?xml version="1.0" encoding="windows-1251"?>\n' + 
+                       ET.tostring(card_xml, encoding='unicode'))
         card_path = os.path.join(bill_dir, 'card.xml')
-        with open(card_path, 'wb') as f:
+        with open(card_path, 'w', encoding='windows-1251') as f:
             f.write(card_content)
         
         # Создаем meta.xml
-        meta_content = ET.tostring(create_meta_xml(source_xml), encoding='utf-8', xml_declaration=True)
-        meta_path = os.path.join(bill_dir, 'meta.xml')
-        with open(meta_path, 'wb') as f:
+        meta_xml = create_meta_xml(source_xml)
+        meta_content = ('<?xml version="1.0" encoding="windows-1251"?>\n' + 
+                       ET.tostring(meta_xml, encoding='unicode'))
+        meta_path = os.path.join(temp_dir, 'meta.xml')
+        with open(meta_path, 'w', encoding='windows-1251') as f:
             f.write(meta_content)
         
-        # Создаем архив
-        archive_name = os.path.join(TEMP_DIR, f"bill_processed_{timestamp}.zip")
+        # Создаем ZIP архив
+        archive_name = os.path.join(TEMP_DIR, f"bill_{timestamp}.zip")
         with zipfile.ZipFile(archive_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # Добавляем все файлы из папки bill_dir в архив
+            # Добавляем meta.xml в корень архива
+            zipf.write(meta_path, 'meta.xml')
+            # Добавляем файлы из папки 1
             for root, _, files in os.walk(bill_dir):
                 for file in files:
                     file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, temp_dir)
+                    arcname = os.path.join('1', file)
                     zipf.write(file_path, arcname)
         
-        # Читаем архив в память
-        with open(archive_name, 'rb') as f:
-            file_data = f.read()
-        
-        # Очищаем временные файлы
-        if temp_dir and os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
-        if archive_name and os.path.exists(archive_name):
-            os.remove(archive_name)
-        
-        # Возвращаем архив
-        return Response(
-            content=file_data,
+        # Отправляем файл
+        return FileResponse(
+            archive_name,
             media_type='application/zip',
-            headers={
-                'Content-Disposition': f'attachment; filename="bill_processed_{timestamp}.zip"',
-                'Content-Type': 'application/zip'
-            }
+            filename=os.path.basename(archive_name)
         )
         
     except Exception as e:
-        logger.error(f"Error processing bill: {str(e)}", exc_info=True)
-        # Очищаем временные файлы в случае ошибки
-        if temp_dir and os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
-        if archive_name and os.path.exists(archive_name):
-            os.remove(archive_name)
+        logger.error(f"Error processing bill: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+        
+    finally:
+        # Очистка временных файлов
+        try:
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            if archive_name and os.path.exists(archive_name):
+                os.remove(archive_name)
+        except Exception as e:
+            logger.error(f"Error cleaning up temporary files: {str(e)}")
 
 @app.on_event("shutdown")
 async def cleanup_temp_files():

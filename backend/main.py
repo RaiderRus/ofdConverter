@@ -319,85 +319,103 @@ def add_daily_totals_taxcom(df: DataFrame, writer: pd.ExcelWriter, sheet_name: s
             cell = worksheet.cell(row=row, column=col)
             cell.fill = fill
 
-def create_card_xml(source_xml: ET.Element) -> str:
+def create_card_xml(source_xml: ET.Element) -> ET.Element:
     """Создает card.xml на основе данных из исходного файла"""
-    root = ET.Element("Card")
-    
-    try:
-        # Уникальный идентификатор для карточки
-        card_id = str(uuid.uuid4())
-        ET.SubElement(root, "Id").text = card_id
-        
-        # Получаем данные из исходного XML
-        # Предполагаем стандартную структуру электронного счета
-        document = source_xml.find(".//Документ") or source_xml.find(".//Document")
-        if document is not None:
-            # Номер документа
-            number = document.get("Номер") or document.get("Number", "")
-            ET.SubElement(root, "Number").text = number
-            
-            # Дата документа
-            date = document.get("Дата") or document.get("Date", "")
-            ET.SubElement(root, "Date").text = date
-            
-            # Тип документа
-            ET.SubElement(root, "Type").text = "Bill"
-            
-            # Сумма документа
-            amount = document.get("Сумма") or document.get("Amount", "")
-            ET.SubElement(root, "Amount").text = amount
-            
-            # Валюта
-            currency = document.get("Валюта") or document.get("Currency", "RUB")
-            ET.SubElement(root, "Currency").text = currency
-            
-            # Организация
-            organization = document.find(".//Организация") or document.find(".//Organization")
-            if organization is not None:
-                org_element = ET.SubElement(root, "Organization")
-                ET.SubElement(org_element, "Name").text = organization.get("Наименование") or organization.get("Name", "")
-                ET.SubElement(org_element, "INN").text = organization.get("ИНН") or organization.get("INN", "")
-                ET.SubElement(org_element, "KPP").text = organization.get("КПП") or organization.get("KPP", "")
-        
-    except Exception as e:
-        logger.error(f"Error creating card.xml: {str(e)}")
-        raise
-    
-    return ET.tostring(root, encoding='utf-8', xml_declaration=True)
+    # Создаем корневой элемент Card
+    card = ET.Element("Card", {
+        "xmlns": "http://api-invoice.taxcom.ru/card",
+        "xmlns:xs": "http://www.w3.org/2001/XMLSchema",
+        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance"
+    })
 
-def create_meta_xml(source_xml: ET.Element) -> str:
-    """Создает meta.xml на основе данных из исходного файла"""
-    root = ET.Element("Meta")
-    
+    # Добавляем Identifiers с уникальным ExternalIdentifier
+    identifiers = ET.SubElement(card, "Identifiers")
+    identifiers.set("ExternalIdentifier", str(uuid.uuid4()))
+
+    # Добавляем пустой Type
+    ET.SubElement(card, "Type")
+
+    # Добавляем Description
+    description = ET.SubElement(card, "Description")
+    # Получаем данные из исходного XML
     try:
-        # Текущее время для меток создания и изменения
-        current_time = datetime.now().isoformat()
-        
-        # Основные метаданные
-        ET.SubElement(root, "Created").text = current_time
-        ET.SubElement(root, "Modified").text = current_time
-        
-        # Получаем данные из исходного XML
-        document = source_xml.find(".//Документ") or source_xml.find(".//Document")
-        if document is not None:
-            # Добавляем информацию о документе
-            doc_info = ET.SubElement(root, "DocumentInfo")
-            ET.SubElement(doc_info, "Type").text = "Bill"
-            ET.SubElement(doc_info, "Number").text = document.get("Номер") or document.get("Number", "")
-            ET.SubElement(doc_info, "Date").text = document.get("Дата") or document.get("Date", "")
+        title = source_xml.find(".//Документ").get("НаимДокОпр", "Счет на оплату")
+        date_str = source_xml.find(".//Документ").get("ДатаИнфПр")
+        if date_str:
+            # Преобразуем дату в нужный формат
+            date_obj = datetime.strptime(date_str, "%d.%m.%Y")
+            date = date_obj.strftime("%Y-%m-%dT%H:%M:%S")
+        else:
+            date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    except (AttributeError, ValueError) as e:
+        logger.warning(f"Ошибка при получении данных для Description: {e}")
+        title = "Счет на оплату"
+        date = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+    description.set("Title", title)
+    description.set("Date", date)
+
+    # Добавляем Sender
+    sender = ET.SubElement(card, "Sender")
+    try:
+        # Получаем данные о продавце из исходного XML
+        seller = source_xml.find(".//СвПрод")
+        if seller is not None:
+            abonent = ET.SubElement(sender, "Abonent")
+            inn = seller.get("ИННЮЛ", "") or seller.get("ИННФЛ", "")
+            kpp = seller.get("КПП", "")
+            name = seller.get("НаимОрг", "") or f"ИП {seller.get('ФИО', '')}"
             
-            # Добавляем информацию об организации
-            organization = document.find(".//Организация") or document.find(".//Organization")
-            if organization is not None:
-                org_info = ET.SubElement(root, "OrganizationInfo")
-                ET.SubElement(org_info, "Name").text = organization.get("Наименование") or organization.get("Name", "")
-                ET.SubElement(org_info, "INN").text = organization.get("ИНН") or organization.get("INN", "")
-        
+            abonent.set("Id", inn)
+            abonent.set("Name", name)
+            abonent.set("Inn", inn)
+            abonent.set("Kpp", kpp)
     except Exception as e:
-        logger.error(f"Error creating meta.xml: {str(e)}")
-        raise
-    
-    return ET.tostring(root, encoding='utf-8', xml_declaration=True)
+        logger.warning(f"Ошибка при получении данных отправителя: {e}")
+
+    # Добавляем пустой Receiver
+    ET.SubElement(card, "Receiver")
+
+    return card
+
+def create_meta_xml(source_xml: ET.Element) -> ET.Element:
+    """Создает meta.xml на основе данных из исходного файла"""
+    # Создаем корневой элемент ContainerDescription
+    container = ET.Element("ContainerDescription", {
+        "xmlns": "http://api-invoice.taxcom.ru/meta",
+        "xmlns:xs": "http://www.w3.org/2001/XMLSchema",
+        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance"
+    })
+
+    # Добавляем DocFlow с уникальным Id
+    doc_flow = ET.SubElement(container, "DocFlow")
+    doc_flow.set("Id", str(uuid.uuid4()))
+
+    # Добавляем Documents
+    documents = ET.SubElement(doc_flow, "Documents")
+    document = ET.SubElement(documents, "Document")
+    document.set("ReglamentCode", "Nonformalized")
+    document.set("TransactionCode", "MainDocument")
+
+    # Добавляем Files
+    files = ET.SubElement(document, "Files")
+
+    # Добавляем MainImage
+    main_image = ET.SubElement(files, "MainImage")
+    main_image.set("xmlns:d6p1", "http://api-invoice.taxcom.ru/card")
+    # Получаем имя исходного файла
+    try:
+        source_filename = source_xml.find(".//Файл").get("ИмяФайл", "document.xml")
+    except (AttributeError, ValueError):
+        source_filename = "document.xml"
+    main_image.set("Path", f"1/{source_filename}")
+
+    # Добавляем ExternalCard
+    external_card = ET.SubElement(files, "ExternalCard")
+    external_card.set("xmlns:d6p1", "http://api-invoice.taxcom.ru/card")
+    external_card.set("Path", "1/card.xml")
+
+    return container
 
 @app.post("/api/process_excel")
 async def process_excel(file: UploadFile = File(...), report_type: str = 'checks'):
@@ -609,13 +627,13 @@ async def process_bill(file: UploadFile = File(...)):
             f.write(content)
         
         # Создаем card.xml
-        card_content = create_card_xml(source_xml)
+        card_content = ET.tostring(create_card_xml(source_xml), encoding='utf-8', xml_declaration=True)
         card_path = os.path.join(bill_dir, 'card.xml')
         with open(card_path, 'wb') as f:
             f.write(card_content)
         
         # Создаем meta.xml
-        meta_content = create_meta_xml(source_xml)
+        meta_content = ET.tostring(create_meta_xml(source_xml), encoding='utf-8', xml_declaration=True)
         meta_path = os.path.join(bill_dir, 'meta.xml')
         with open(meta_path, 'wb') as f:
             f.write(meta_content)

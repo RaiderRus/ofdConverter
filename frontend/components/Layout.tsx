@@ -1,11 +1,12 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
-import { Tabs } from 'antd';
+import { Tabs, Layout as AntLayout } from 'antd';
 
+const { Content } = AntLayout;
 const BillConverter = dynamic(() => import('./BillConverter'), { ssr: false });
 const OFDConverter = dynamic(() => import('./OFDConverter'), { ssr: false });
 
-const Layout: React.FC = () => {
+const AppLayout: React.FC<{ children?: React.ReactNode }> = ({ children }) => {
   const items = [
     {
       key: '1',
@@ -20,10 +21,13 @@ const Layout: React.FC = () => {
   ];
 
   return (
-    <div style={{ padding: '24px' }}>
-      <Tabs defaultActiveKey="1" items={items} />
-    </div>
+    <AntLayout className="min-h-screen">
+      <Content className="p-6">
+        <Tabs defaultActiveKey="1" items={items} />
+        {children}
+      </Content>
+    </AntLayout>
   );
 };
 
-export default Layout; 
+export default AppLayout;

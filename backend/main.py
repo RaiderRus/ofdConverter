@@ -672,26 +672,39 @@ async def process_bill(file: UploadFile = File(...)):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         temp_dir = os.path.join(TEMP_DIR, f"bill_processing_{timestamp}")
         os.makedirs(temp_dir)
+        logger.info(f"Created temp directory: {temp_dir}")
         
         # Создаем структуру папок
         bill_dir = os.path.join(temp_dir, "1")
         os.makedirs(bill_dir)
+        logger.info(f"Created bill directory: {bill_dir}")
         
         # Читаем входной XML файл
         content = await file.read()
+        logger.info(f"Read file content, size: {len(content)} bytes")
         
         # Определяем кодировку файла
         encoding = 'utf-8'
         if content.startswith(b'\xef\xbb\xbf'):  # UTF-8 с BOM
             content = content[3:]
+            logger.info("Detected UTF-8 with BOM")
         elif b'windows-1251' in content.lower() or b'cp1251' in content.lower():
             encoding = 'windows-1251'
+            logger.info("Detected windows-1251 encoding")
         
         try:
             # Пробуем декодировать XML с определенной кодировкой
             xml_content = content.decode(encoding)
+            logger.info(f"Successfully decoded content with {encoding}")
+            
+            # Логируем первые 200 символов содержимого для отладки
+            logger.info(f"Content preview: {xml_content[:200]}")
+            
             source_xml = ET.fromstring(xml_content)
+            logger.info("Successfully parsed XML")
+            
         except (UnicodeDecodeError, ET.ParseError) as e:
+            logger.warning(f"Failed to decode with {encoding}: {str(e)}")
             # Если не удалось, пробуем другие кодировки
             encodings = ['windows-1251', 'utf-8', 'utf-16', 'cp866']
             for enc in encodings:
@@ -700,65 +713,81 @@ async def process_bill(file: UploadFile = File(...)):
                         xml_content = content.decode(enc)
                         source_xml = ET.fromstring(xml_content)
                         encoding = enc
+                        logger.info(f"Successfully decoded with alternative encoding: {enc}")
                         break
-                    except (UnicodeDecodeError, ET.ParseError):
+                    except (UnicodeDecodeError, ET.ParseError) as e:
+                        logger.warning(f"Failed to decode with {enc}: {str(e)}")
                         continue
             else:
+                logger.error("Failed to decode with any encoding")
                 raise HTTPException(
                     status_code=400,
                     detail="Не удалось определить кодировку файла или файл содержит некорректный XML"
                 )
         
-        # Сохраняем исходный файл
-        source_path = os.path.join(bill_dir, file.filename)
-        with open(source_path, 'w', encoding='windows-1251') as f:
-            f.write(xml_content)
-        
-        # Создаем card.xml
-        card_xml = create_card_xml(source_xml)
-        card_content = ('<?xml version="1.0" encoding="windows-1251"?>\n' + 
-                       ET.tostring(card_xml, encoding='unicode'))
-        card_path = os.path.join(bill_dir, 'card.xml')
-        with open(card_path, 'w', encoding='windows-1251') as f:
-            f.write(card_content)
-        
-        # Создаем meta.xml
-        meta_xml = create_meta_xml(source_xml)
-        meta_content = ('<?xml version="1.0" encoding="windows-1251"?>\n' + 
-                       ET.tostring(meta_xml, encoding='unicode'))
-        meta_path = os.path.join(temp_dir, 'meta.xml')
-        with open(meta_path, 'w', encoding='windows-1251') as f:
-            f.write(meta_content)
-        
-        # Создаем ZIP архив
-        archive_name = os.path.join(TEMP_DIR, f"bill_{timestamp}.zip")
-        with zipfile.ZipFile(archive_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # Добавляем meta.xml в корень архива
-            zipf.write(meta_path, 'meta.xml')
-            # Добавляем файлы из папки 1
-            for root, _, files in os.walk(bill_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.join('1', file)
-                    zipf.write(file_path, arcname)
-        
-        # Отправляем файл
-        return FileResponse(
-            archive_name,
-            media_type='application/zip',
-            filename=f"bill_{timestamp}.zip",
-            headers={
-                'Content-Disposition': f'attachment; filename="bill_{timestamp}.zip"'
-            }
-        )
+        try:
+            # Сохраняем исходный файл
+            source_path = os.path.join(bill_dir, file.filename)
+            with open(source_path, 'w', encoding='windows-1251') as f:
+                f.write(xml_content)
+            logger.info(f"Saved source file: {source_path}")
+            
+            # Создаем card.xml
+            logger.info("Creating card.xml")
+            card_xml = create_card_xml(source_xml)
+            card_content = ('<?xml version="1.0" encoding="windows-1251"?>\n' + 
+                          ET.tostring(card_xml, encoding='unicode'))
+            card_path = os.path.join(bill_dir, 'card.xml')
+            with open(card_path, 'w', encoding='windows-1251') as f:
+                f.write(card_content)
+            logger.info(f"Saved card.xml: {card_path}")
+            
+            # Создаем meta.xml
+            logger.info("Creating meta.xml")
+            meta_xml = create_meta_xml(source_xml)
+            meta_content = ('<?xml version="1.0" encoding="windows-1251"?>\n' + 
+                          ET.tostring(meta_xml, encoding='unicode'))
+            meta_path = os.path.join(temp_dir, 'meta.xml')
+            with open(meta_path, 'w', encoding='windows-1251') as f:
+                f.write(meta_content)
+            logger.info(f"Saved meta.xml: {meta_path}")
+            
+            # Создаем ZIP архив
+            logger.info("Creating ZIP archive")
+            archive_name = os.path.join(TEMP_DIR, f"bill_{timestamp}.zip")
+            with zipfile.ZipFile(archive_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Добавляем meta.xml в корень архива
+                zipf.write(meta_path, 'meta.xml')
+                # Добавляем файлы из папки 1
+                for root, _, files in os.walk(bill_dir):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.join('1', file)
+                        zipf.write(file_path, arcname)
+            logger.info(f"Created ZIP archive: {archive_name}")
+            
+            # Отправляем файл
+            logger.info("Sending response")
+            return FileResponse(
+                archive_name,
+                media_type='application/zip',
+                filename=f"bill_{timestamp}.zip",
+                headers={
+                    'Content-Disposition': f'attachment; filename="bill_{timestamp}.zip"'
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Error during file processing: {str(e)}", exc_info=True)
+            raise
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error processing bill: {str(e)}")
+        logger.error(f"Unhandled error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail="Ошибка при обработке файла: " + str(e)
+            detail=f"Ошибка при обработке файла: {str(e)}"
         )
         
     finally:
@@ -766,10 +795,12 @@ async def process_bill(file: UploadFile = File(...)):
         try:
             if temp_dir and os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
+                logger.info(f"Cleaned up temp directory: {temp_dir}")
             if archive_name and os.path.exists(archive_name):
                 os.remove(archive_name)
+                logger.info(f"Cleaned up archive: {archive_name}")
         except Exception as e:
-            logger.error(f"Error cleaning up temporary files: {str(e)}")
+            logger.error(f"Error cleaning up temporary files: {str(e)}", exc_info=True)
 
 @app.on_event("shutdown")
 async def cleanup_temp_files():

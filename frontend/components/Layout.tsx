@@ -1,4 +1,9 @@
-import BillConverter from './BillConverter';
+import React from 'react';
+import dynamic from 'next/dynamic';
+import { Tabs } from 'antd';
+
+const BillConverter = dynamic(() => import('./BillConverter'), { ssr: false });
+const OFDConverter = dynamic(() => import('./OFDConverter'), { ssr: false });
 
 const Layout: React.FC = () => {
   const items = [

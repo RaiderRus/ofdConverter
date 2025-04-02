@@ -12,6 +12,7 @@
     "@types/node": "20.11.1",
     "@types/react": "18.2.47",
     "@types/react-dom": "18.2.18",
+    "antd": "^5.24.6",
     "autoprefixer": "10.4.16",
     "eslint": "8.56.0",
     "eslint-config-next": "14.2.20",

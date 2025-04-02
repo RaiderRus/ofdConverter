@@ -115,10 +115,10 @@ PAYMENT_COLUMNS = ['Наличными', 'Электронными', 'Предо
 HIGHLIGHT_COLOR = 'D3D3D3'  # Светло-серый цвет для итоговых строк
 
 # Определяем путь к временной директории
-TEMP_DIR = "/tmp" if os.path.exists("/tmp") else "temp_files"
-if not os.path.exists(TEMP_DIR):
+    TEMP_DIR = "/tmp" if os.path.exists("/tmp") else "temp_files"
+    if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
-    logger.info(f"Created temporary directory: {TEMP_DIR}")
+        logger.info(f"Created temporary directory: {TEMP_DIR}")
 
 def process_dataframe(df: DataFrame) -> DataFrame:
     """Обработка данных согласно требованиям"""
@@ -201,7 +201,7 @@ def process_nomenclature_dataframe(df: DataFrame) -> DataFrame:
                         # Случай 2: Предоплата больше суммы товара
                         df.loc[idx, 'Сумма товара'] = 0
                         remaining_prepayment -= current_amount
-    
+                        
     # Обработка значений согласно правилам
     for column in ['Наличными по чеку', 'Электронными по чеку']:
         # Замена значений, которые больше 'Сумма товара'
